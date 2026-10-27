@@ -77,7 +77,12 @@ jobs:
             Get-Item -LiteralPath "dist\Lyrics-$version-Windows.zip"
             Get-Item -LiteralPath 'dist\SHA256SUMS.txt'
           ) | ForEach-Object { $_.FullName }
-          & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --generate-notes --title "Lyrics $version"
+          $notesPath = Join-Path 'release-notes' "$version.md"
+          if (Test-Path -LiteralPath $notesPath -PathType Leaf) {
+            & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --notes-file $notesPath --title "Lyrics $version"
+          } else {
+            & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --generate-notes --title "Lyrics $version"
+          }
           if ($LASTEXITCODE -ne 0) {
             throw "Could not create the draft GitHub Release (exit code $LASTEXITCODE)."
           }

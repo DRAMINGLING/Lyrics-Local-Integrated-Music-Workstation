@@ -11,7 +11,7 @@ import cyrtranslit
 
 logger = logging.getLogger("phonetize")
 kks = pykakasi.kakasi()
-# Lyrics integration: keep the fastText weights in the per-user model cache.
+# Lyrics integration: load the verified fastText path selected by model_manager.
 fasttext_model_path = os.environ.get('AUTO_LRC_FASTTEXT_PATH', 'lid.176.ftz')
 fasttext_model = fasttext.load_model(fasttext_model_path)
 

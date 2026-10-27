@@ -37,7 +37,7 @@ _ASSETS = {
 }
 _MAX_BYTES = max(asset["size"] for asset in _ASSETS.values())
 _LOCK = threading.Lock()
-_VERIFIED: set[str] = set()
+_VERIFIED: set[tuple[str, str]] = set()
 
 
 @dataclass(frozen=True)
@@ -57,13 +57,47 @@ def model_cache_directory() -> Path:
 
 
 def configure_model_paths() -> AutoLrcAssets:
-    """Point the vendored upstream loader at per-user storage without changing cwd."""
+    """Use verified cache files, or keep valid legacy upstream files in place."""
     cache_dir = model_cache_directory()
+    legacy_dir = Path(__file__).resolve().parent / "upstream"
+    checkpoint_assets = {
+        name: details for name, details in _ASSETS.items()
+        if name in ("checkpoint_MTL", "checkpoint_BDR")
+    }
     checkpoints = cache_dir / "checkpoints"
+    for candidate in (checkpoints, legacy_dir / "checkpoints"):
+        candidate_valid = True
+        for name, details in checkpoint_assets.items():
+            asset_path = candidate / name
+            if not _valid_file(
+                asset_path,
+                expected_size=details["size"],
+                expected_sha256=details["sha256"],
+            ):
+                candidate_valid = False
+                break
+            _VERIFIED.add((name, str(asset_path)))
+        if candidate_valid:
+            checkpoints = candidate
+            break
+
+    fasttext_model_path = cache_dir / "lid.176.ftz"
+    fasttext_details = _ASSETS["lid.176.ftz"]
+    legacy_fasttext_path = legacy_dir / fasttext_details["relative_path"]
+    for candidate in (fasttext_model_path, legacy_fasttext_path):
+        if _valid_file(
+            candidate,
+            expected_size=fasttext_details["size"],
+            expected_sha256=fasttext_details["sha256"],
+        ):
+            fasttext_model_path = candidate
+            _VERIFIED.add(("lid.176.ftz", str(candidate)))
+            break
+
     os.environ["AUTO_LRC_CHECKPOINT_DIR"] = str(checkpoints)
-    os.environ["AUTO_LRC_FASTTEXT_PATH"] = str(cache_dir / "lid.176.ftz")
+    os.environ["AUTO_LRC_FASTTEXT_PATH"] = str(fasttext_model_path)
     os.environ.setdefault("TORCH_HOME", str(app_data_directory() / "torch"))
-    return AutoLrcAssets(checkpoints, cache_dir / "lid.176.ftz")
+    return AutoLrcAssets(checkpoints, fasttext_model_path)
 
 
 def _valid_file(path: Path, *, expected_size: int, expected_sha256: str) -> bool:
@@ -137,14 +171,14 @@ def _download_asset(name: str, destination: Path, details: dict) -> None:
 def verify_auto_lrc_assets() -> AutoLrcAssets:
     """Verify manually downloaded pinned assets without making network requests."""
     assets = configure_model_paths()
-    cache_dir = assets.fasttext_model_path.parent
     with _LOCK:
         for name, details in _ASSETS.items():
             if name == "lid.176.ftz":
                 destination = assets.fasttext_model_path
             else:
                 destination = assets.checkpoint_dir / name
-            if name in _VERIFIED and destination.is_file():
+            verified_key = (name, str(destination))
+            if verified_key in _VERIFIED and destination.is_file():
                 continue
             if not _valid_file(
                 destination,
@@ -152,31 +186,33 @@ def verify_auto_lrc_assets() -> AutoLrcAssets:
                 expected_sha256=details["sha256"],
             ):
                 raise RuntimeError(
-                    "Auto-LRC 模型尚未下载，或缓存文件未通过 SHA-256 校验。"
+                    f"未找到通过 SHA-256 校验的 Auto-LRC 模型文件：\n{destination}\n"
                     "请先阅读 README.md，然后在开始菜单运行“下载 Auto-LRC 模型”。"
                 )
-            _VERIFIED.add(name)
-    return AutoLrcAssets(assets.checkpoint_dir, cache_dir / "lid.176.ftz")
+            _VERIFIED.add(verified_key)
+    return assets
 
 
 def download_auto_lrc_assets() -> AutoLrcAssets:
-    """Download and verify pinned assets only when explicitly requested by the user."""
+    """Use valid existing assets in place; download only any missing pinned assets."""
     assets = configure_model_paths()
-    cache_dir = assets.fasttext_model_path.parent
     with _LOCK:
         for name, details in _ASSETS.items():
             if name == "lid.176.ftz":
                 destination = assets.fasttext_model_path
             else:
                 destination = assets.checkpoint_dir / name
+            verified_key = (name, str(destination))
+            if verified_key in _VERIFIED and destination.is_file():
+                continue
             if _valid_file(
                 destination,
                 expected_size=details["size"],
                 expected_sha256=details["sha256"],
             ):
-                _VERIFIED.add(name)
+                _VERIFIED.add(verified_key)
                 continue
             print(f"正在下载并校验 Auto-LRC 模型文件：{name}")
             _download_asset(name, destination, details)
-            _VERIFIED.add(name)
-    return AutoLrcAssets(assets.checkpoint_dir, cache_dir / "lid.176.ftz")
+            _VERIFIED.add(verified_key)
+    return assets

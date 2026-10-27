@@ -13,6 +13,7 @@ $presetName = -join @([char]0x9884, [char]0x8bbe, '1.pt')
 $presetRelativePath = Join-Path 'model-presets' $presetName
 $requiredFiles = @(
   'installer\Lyrics.iss',
+  'installer\UninstallLauncher.cs',
   'AutoLrcAligner.pyw',
   'InstallAutoLrc.cmd',
   'DownloadAutoLrcModels.cmd',
@@ -62,6 +63,28 @@ if (-not (Test-Path -LiteralPath $languageFile -PathType Leaf)) {
 $compilerVersion = (Get-Item -LiteralPath $compilerPathResolved).VersionInfo.ProductVersion
 if ($compilerVersion -match '^(\d+)\.(\d+)' -and $matches[1] -eq '6' -and [int]$matches[2] -lt 3) {
   throw "Inno Setup 6.3 or newer is required for x64-compatible Windows support. Found $compilerVersion at $compilerPathResolved."
+}
+$csharpCompilerCandidates = @(
+  (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+  (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+)
+$csharpCompiler = $csharpCompilerCandidates |
+  Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+  Select-Object -First 1
+if (-not $csharpCompiler) {
+  $command = Get-Command 'csc.exe' -ErrorAction SilentlyContinue
+  if ($command) { $csharpCompiler = $command.Source }
+}
+if (-not $csharpCompiler) {
+  throw 'The C# compiler (csc.exe) was not found; it is required to build the uninstall.exe launcher.'
+}
+$distRoot = Join-Path $projectRoot 'dist'
+New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
+$uninstallLauncher = Join-Path $distRoot 'uninstall.exe'
+$uninstallLauncherSource = Join-Path $projectRoot 'installer\UninstallLauncher.cs'
+& $csharpCompiler '/nologo' '/target:winexe' "/out:$uninstallLauncher" '/reference:System.Windows.Forms.dll' $uninstallLauncherSource
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $uninstallLauncher -PathType Leaf)) {
+  throw "Could not compile the uninstall.exe launcher (exit code $LASTEXITCODE)."
 }
 $installerScript = Join-Path $projectRoot 'installer\Lyrics.iss'
 & $compilerPathResolved "/DAppVersion=$version" "/O$(Join-Path $projectRoot 'dist')" $installerScript

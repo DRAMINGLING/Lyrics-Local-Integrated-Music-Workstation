@@ -260,8 +260,8 @@ def save_model(model, optimizer, state, path):
 def load_model(model, path, cuda):
     if isinstance(model, torch.nn.DataParallel):
         model = model.module  # load state dict of wrapped module
-    # Lyrics integration: use the pinned, per-user cache when configured and
-    # load tensor-only checkpoints to avoid unrestricted pickle execution.
+    # Lyrics integration: use the verified pinned model directory selected by
+    # model_manager, and load tensor-only checkpoints to avoid unrestricted pickle execution.
     checkpoint_path = path
     cache_directory = os.environ.get("AUTO_LRC_CHECKPOINT_DIR")
     if cache_directory and not os.path.isabs(path):

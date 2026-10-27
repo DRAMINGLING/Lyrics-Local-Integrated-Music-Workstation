@@ -1,10 +1,16 @@
-# Lyrics 本地集成音乐工作站
+# Lyrics 本地音乐歌词工作站
 
-Lyrics 是一个由 Chatgpt 6 Luna 主力开发的 Windows 本地桌面工作站，提供歌词导入与打轴、音频标签和内嵌歌词编辑、在线歌词检索、试听检查，以及基于人工反馈的边界模型微调。程序以 Auto-LRC 上游模型生成为时间轴草稿；最终时间建议试听确认。
+Lyrics 是一个 Windows 本地桌面工作站，提供歌词导入与打轴、音频标签和内嵌歌词编辑、在线歌词检索、试听检查，以及基于人工反馈的边界模型微调。程序以 Auto-LRC 上游模型生成为时间轴草稿；最终时间建议试听确认。
 
 ## 选择的发布与运行方式
 
 安装包只复制程序文件、安装说明和轻量的本地最佳模型预设。它不会检查或安装 Python，也不会联网下载 Python 运行环境、依赖包或模型。用户先阅读本说明，再从开始菜单明确选择要安装的运行环境和模型；这样安装行为由用户控制，也避免将数百 MB 的运行库和模型放进 GitHub Release。
+
+| 方案 | 体积与速度 | 稳定性与许可 | 本项目采用方式 |
+|---|---|---|---|
+| 把 Python 环境、CUDA 运行库和所有权重直接放入安装包 | 首次安装快，但下载包很大，更新时重复传输 | 容易混淆代码与各模型的许可，也会让安装器难以维护 | 不采用 |
+| 每次运行都在线调用云端打轴 | 本地安装轻 | 音频必须离开设备，服务可用性和隐私依赖第三方 | 不采用；打轴始终在本机完成 |
+| 安装器只复制程序；用户阅读文档后手动安装独立 Python 环境和依赖，并手动下载固定版本的原始模型 | 安装器轻且离线可运行；用户选择安装时和下载模型时需要网络，CPU 速度依设备而异 | 安装器不执行网络脚本；固定版本、TLS 下载、大小与 SHA-256 校验；CUDA 和受限的人声分离模型由用户选择 | 采用 |
 
 CPU 运行环境是推荐选项，兼容面广。安装包本身不会安装 CPU 或 CUDA 依赖。阅读本 README 后，可从开始菜单手动运行“手动安装或修复 CPU 运行环境”；NVIDIA GPU 用户可选择“手动安装或修复 CUDA 运行环境”，安装 CUDA 12.1 版 PyTorch。CUDA 包更大，脚本会先检查 NVIDIA 驱动和 GPU，失败会明确报错，不会静默改装另一种运行方式。设置里的“自动”会在当前 PyTorch 可用时使用 GPU，否则使用 CPU。
 
@@ -14,20 +20,20 @@ CPU 运行环境是推荐选项，兼容面广。安装包本身不会安装 CPU
 
 ### 模型与预设
 
-- **Auto-LRC 原始模型**：上游固定版本为 [`2c475cc62dda50572d7a292fd88cc39e8aa2ae2c`](auto-lrc-engine/UPSTREAM_VERSION.txt)。安装运行环境后，用户从开始菜单手动运行“手动下载 Auto-LRC 模型”，获取本应用需要的 MTL 声学权重、BDR 边界权重和语言识别文件，存入 `%LOCALAPPDATA%\Lyrics\models\auto-lrc\`。下载器只取固定版本，并逐个验证文件大小和 SHA-256；缺少模型时应用不会在打轴过程中自行联网下载。
-- **预设1**：`model-presets/预设1.pt` 是发布者本地训练得到的最佳边界模型，保留为可选择的本地预设。它只替换 BDR 边界权重，MTL 声学模型仍使用 Auto-LRC 上游原始权重。
+- **Auto-LRC 原始模型**：上游固定版本为 [`2c475cc62dda50572d7a292fd88cc39e8aa2ae2c`](auto-lrc-engine/UPSTREAM_VERSION.txt)。安装运行环境后，用户从开始菜单手动运行“手动下载 Auto-LRC 模型”，获取本应用需要的 MTL 声学权重、BDR 边界权重和语言识别文件，存入 `%LOCALAPPDATA%\Lyrics\models\auto-lrc\`。下载器只取固定版本，并逐个验证文件大小和 SHA-256；如果旧模型仍在 `auto-lrc-engine/upstream/`，应用会验证后直接从原位置加载，不会复制或移动。缺少有效模型时应用不会在打轴过程中自行联网下载。
+- **预设1**：`model-presets/预设1.pt` 是本机训练得到的最佳边界模型，保留为可选择的本地预设。它只替换 BDR 边界权重，MTL 声学模型仍使用 Auto-LRC 上游原始权重。
 - **恢复上游模型**：设置页“恢复预训练模型”会停用本地微调模型，恢复使用上游的 MTL + BDR。源代码仍保存在 `auto-lrc-engine/upstream/`；原始大权重由用户从开始菜单的模型下载入口取回，不塞进 Release ZIP。
 - **人声分离**：默认关闭。Demucs 程序代码与其预训练权重适用不同条款。维护者说明相关权重仅供科学用途，所以 Lyrics 不分发这些权重；用户在界面勾选人声分离时会先看到许可提示，并在确认后由 Demucs 上游下载。也可以直接使用未分离音频打轴。
 
 ## 安装和启动
 
-1. 安装器不会联网，也不要求先安装 Python。下载并运行 `Lyrics-Setup-<版本>-Windows-x64.exe`，程序将按当前用户安装到 `%LOCALAPPDATA%\Programs\Lyrics`，不需要管理员权限。
+1. 安装器不会联网，也不要求先安装 Python。下载并运行 `Lyrics-Setup-<版本>-Windows-x64.exe`，程序将按当前用户安装到 `%LOCALAPPDATA%\Programs\Lyrics`，不需要管理员权限。安装目录中提供 `uninstall.exe`，开始菜单也有卸载入口。
 2. 安装后先从开始菜单打开“阅读安装说明”，或查看安装目录中的 `README.md`。然后安装 64 位 Python 3.10 或 3.11，并启用 Python Launcher（`py`）。Python 安装程序请从 [Python 官方 Windows 下载页](https://www.python.org/downloads/windows/)获取。
 3. 运行开始菜单中的“手动安装或修复 CPU 运行环境”，下载并安装本项目固定版本的 PyTorch 和依赖。该操作由用户主动启动，需要网络。若需 CUDA，请先确认 NVIDIA 驱动和 GPU，再运行“手动安装或修复 CUDA 运行环境”。
 4. 运行开始菜单中的“手动下载 Auto-LRC 模型”。约 68 MiB 的上游模型会下载到 `%LOCALAPPDATA%\Lyrics\models\auto-lrc\` 并校验 SHA-256。模型准备好后可离线打轴；在线歌词搜索始终需要联网。
 5. 从开始菜单启动 Lyrics。首次打轴前若未手动准备模型，程序会提示用户运行模型下载入口，不会自动联网下载。
 
-人声分离模型仅在用户确认许可并启用该功能后由 Demucs 上游下载，体积较大。源码开发者也可以直接从可写目录运行 `InstallAutoLrc.cmd`，再运行 `DownloadAutoLrcModels.cmd` 和 `AutoLrcAligner.pyw`；GitHub Release 的安装器只复制应用文件，不执行任何依赖或模型下载。
+人声分离模型仅在用户确认许可并启用该功能后由 Demucs 上游下载，体积较大。源码开发者也可以直接从可写目录运行 `InstallAutoLrc.cmd`，再运行 `DownloadAutoLrcModels.cmd` 和 `AutoLrcAligner.pyw`；安装器只复制应用文件，不执行任何依赖或模型下载。
 
 ## 使用功能
 
@@ -36,7 +42,7 @@ CPU 运行环境是推荐选项，兼容面广。安装包本身不会安装 CPU
 1. 选择音频，然后导入 `.lrc` / `.txt`、读取内嵌歌词、粘贴歌词，或在线搜索歌词。
 2. 点击“生成时间轴草稿”。音频和歌词在本机处理；请先通过开始菜单下载并校验 Auto-LRC 模型，打轴时程序只读取本地缓存。
 3. 播放、拖动进度条，双击歌词行试听，双击时间戳修正。按鼠标中键标记问题行，可只重打标记段。
-4. 检查后可导出 LRC 或导出带内嵌歌词的音频副本。也可导入人工 LRC 对照模型时间。
+4. 检查后可导出 LRC、生成带内嵌歌词的音频副本，或在 Auto-LRC 页覆盖当前所选音频的内嵌歌词。覆盖写入只替换歌词标签并保留音频和其他标签；保存后会重新读取文件确认新歌词已写入。也可导入人工 LRC 对照模型时间。
 5. “确认检查并学习”保存本地反馈；在设置页启动训练时，程序按歌曲留出验证集，仅在验证损失改善时替换当前本地边界模型。它不会训练 Auto-LRC 的 MTL 声学模型。
 
 时间轴是草稿。翻唱、混响、和声、歌词文本版本不一致或混合文字系统仍需人工检查。
@@ -54,8 +60,6 @@ CPU 运行环境是推荐选项，兼容面广。安装包本身不会安装 CPU
 ## Windows 安装器签名状态
 
 当前提供的 Windows 安装器没有 Microsoft Authenticode 数字签名。首次下载或运行时，Windows 可能将它显示为未知发布者，或出现 SmartScreen 提示；请仅从项目的官方 GitHub Release 下载，并核对同一 Release 提供的 SHA-256 校验值。GitHub 构建来源证明和 SHA-256 可帮助核验文件来源与完整性，但不等同于 Authenticode 签名，也不能保证消除 SmartScreen 提示。后续若启用可信签名，会在发布说明中公布签名身份和验证方式。
-
-更多签名状态和后续方案见 [CODE-SIGNING.md](CODE-SIGNING.md)。
 
 ## 本机文件和数据位置
 
@@ -79,9 +83,6 @@ CPU 运行环境是推荐选项，兼容面广。安装包本身不会安装 CPU
 - `auto-lrc-engine/upstream/`：固定提交版本的上游源码及其许可证，集成差异列于 `UPSTREAM-MODIFICATIONS.md`。
 - `model-presets/预设1.pt`：本地最佳边界模型预设。
 - `tools/Build-ReleaseZip.ps1`：生成不含虚拟环境、模型缓存、样本媒体和用户文件的 Windows Release ZIP。
-- `tools/Build-Installer.ps1`、`installer/Lyrics.iss`：生成只复制应用文件、不自动安装依赖的 Windows 安装器；构建说明见 [`installer/README.md`](installer/README.md)。
-- `tools/Write-Checksums.ps1`：为安装器和源码 ZIP 生成 SHA-256 校验清单。
-- `.github/workflows/release-windows.yml`：推送版本标签后自动构建并创建草稿 GitHub Release。
 
 ## 许可与来源
 

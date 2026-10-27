@@ -1,6 +1,6 @@
 #define AppName "Lyrics"
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.0.2release"
 #endif
 
 [Setup]
@@ -37,12 +37,14 @@ english.ReadmeShortcut=Read installation guide
 english.CpuRuntimeShortcut=Install or repair CPU runtime (manual)
 english.CudaRuntimeShortcut=Install or repair CUDA runtime (manual)
 english.ModelDownloadShortcut=Download Auto-LRC models (manual)
+english.UninstallShortcut=Uninstall Lyrics
 chinesesimplified.AdditionalShortcuts=其他快捷方式：
 chinesesimplified.DesktopIconTask=创建桌面快捷方式
 chinesesimplified.ReadmeShortcut=阅读安装说明
 chinesesimplified.CpuRuntimeShortcut=手动安装或修复 CPU 运行环境
 chinesesimplified.CudaRuntimeShortcut=手动安装或修复 CUDA 运行环境
 chinesesimplified.ModelDownloadShortcut=手动下载 Auto-LRC 模型
+chinesesimplified.UninstallShortcut=卸载 Lyrics
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIconTask}"; GroupDescription: "{cm:AdditionalShortcuts}"; Flags: unchecked
@@ -54,6 +56,7 @@ Name: "{app}\covers"
 
 [Files]
 Source: "..\AutoLrcAligner.pyw"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\uninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\InstallAutoLrc.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\DownloadAutoLrcModels.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LaunchLyrics.vbs"; DestDir: "{app}"; Flags: ignoreversion
@@ -73,6 +76,7 @@ Name: "{group}\{cm:ReadmeShortcut}"; Filename: "{sys}\notepad.exe"; Parameters: 
 Name: "{group}\{cm:CpuRuntimeShortcut}"; Filename: "{app}\InstallAutoLrc.cmd"; WorkingDir: "{app}"
 Name: "{group}\{cm:CudaRuntimeShortcut}"; Filename: "{app}\InstallAutoLrc.cmd"; Parameters: "--cuda"; WorkingDir: "{app}"
 Name: "{group}\{cm:ModelDownloadShortcut}"; Filename: "{app}\DownloadAutoLrcModels.cmd"; WorkingDir: "{app}"
+Name: "{group}\{cm:UninstallShortcut}"; Filename: "{app}\uninstall.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\Lyrics.ico"
 Name: "{autodesktop}\Lyrics"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\LaunchLyrics.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\Lyrics.ico"; Tasks: desktopicon
 
 [UninstallDelete]

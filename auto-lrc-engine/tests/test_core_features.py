@@ -151,9 +151,11 @@ class MetadataTabsStateTests(TestCase):
         aligner = object.__new__(APP["DesktopAligner"])
         aligner.audio_editor_page = SimpleNamespace(tkraise=lambda: None)
         aligner.autolrc_page = SimpleNamespace(tkraise=lambda: None)
+        aligner.player_footer = SimpleNamespace(grid=lambda: None, grid_remove=lambda: None)
         aligner.audio_path = SimpleNamespace(get=lambda: "song.mp3")
         pending_idle_callbacks = []
         aligner.root = SimpleNamespace(after_idle=pending_idle_callbacks.append)
+        aligner._sync_playback_controls = lambda: None
         aligner.nav_buttons = {
             name: (SimpleNamespace(configure=lambda **_kwargs: None),
                    SimpleNamespace(configure=lambda **_kwargs: None),
@@ -277,6 +279,32 @@ class EmbeddedLyricsTests(TestCase):
             _write_id3v23_uslt(path, "[00:01.000]Hello")
 
             self.assertEqual(embedded_lyrics._read_id3_lyrics_raw(path), ["[00:01.000]Hello"])
+
+    def test_in_place_lyrics_overwrite_is_returned_by_a_fresh_read(self):
+        try:
+            import mutagen  # noqa: F401
+        except ImportError:
+            self.skipTest("Mutagen is unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.wav"
+            with wave.open(str(path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(8_000)
+                audio.writeframes(b"\x00\x00" * 800)
+
+            old_content = "[00:01.000]Old lyric"
+            new_content = "[00:02.000]Updated lyric"
+            embedded_lyrics.write_embedded_lyrics(path, old_content)
+            self.assertEqual(embedded_lyrics.read_embedded_lyrics(path), [old_content])
+
+            saved_contents = APP["_write_embedded_lyrics_in_place"](path, new_content)
+
+            self.assertEqual(saved_contents, [new_content])
+            self.assertEqual(embedded_lyrics.read_embedded_lyrics(path), [new_content])
+            with wave.open(str(path), "rb") as audio:
+                self.assertEqual(audio.readframes(800), b"\x00\x00" * 800)
 
     def test_oversized_id3_header_is_rejected_before_reading_its_payload(self):
         class TrackingStream(io.BytesIO):

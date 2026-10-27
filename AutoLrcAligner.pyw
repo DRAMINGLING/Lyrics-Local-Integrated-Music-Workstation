@@ -403,6 +403,16 @@ def _create_edited_audio_copy(source_path: Path, output_path: Path, edit_copy) -
             pass
 
 
+def _write_embedded_lyrics_in_place(audio_path: Path, content: str) -> list[str]:
+    """Atomically replace an audio file's lyrics, then read back the saved tag."""
+    _create_edited_audio_copy(
+        audio_path,
+        audio_path,
+        lambda temporary_path: write_embedded_lyrics(temporary_path, content),
+    )
+    return read_embedded_lyrics(audio_path)
+
+
 class RoundedPanel(tk.Frame):
     """A softly rounded panel with a regular Tk/ttk content area."""
 
@@ -2261,7 +2271,7 @@ class DesktopAligner:
         ttk.Label(header, text="本机歌词自动打轴", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header,
-            text="选择音频与歌词，生成并检查时间轴草稿。人工检查后可把修正用于本机模型训练；音频不会上传。",
+            text="选择音频与歌词，生成并检查时间轴草稿；可将编辑后的歌词直接写入当前音频。人工检查后可把修正用于本机模型训练；音频不会上传。",
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(4, 0))
 
@@ -2317,6 +2327,13 @@ class DesktopAligner:
         )
         self.embedded_export_button.pack(side="right", padx=(0, 8))
         self.embedded_export_button.configure(state="disabled")
+        self.embedded_overwrite_button = RoundedButton(
+            toolbar,
+            "覆盖当前音频内嵌歌词",
+            self._overwrite_embedded_lyrics,
+        )
+        self.embedded_overwrite_button.pack(side="right", padx=(0, 8))
+        self.embedded_overwrite_button.configure(state="disabled")
         self.delete_audio_button = RoundedButton(
             toolbar,
             "删除当前音频",
@@ -6311,6 +6328,87 @@ class DesktopAligner:
             source=f"音频内嵌歌词（{audio_path.name}）",
         )
 
+    def _overwrite_embedded_lyrics(self) -> None:
+        audio_path = Path(self.audio_path.get().strip())
+        if not audio_path.is_file():
+            messagebox.showwarning("先选音频", "请选择本机上的音频文件。", parent=self.root)
+            return
+
+        has_timeline = self.draft_times is not None or self.imported_lrc_has_timeline
+        if not has_timeline:
+            lyrics = self._read_lyrics()
+            if not lyrics:
+                messagebox.showwarning("没有歌词", "请先输入或导入歌词。", parent=self.root)
+                return
+            lrc_content = self._render_untimed_lyrics_content(lyrics)
+            metadata_status = "当前没有时间轴，已内嵌不带时间戳的歌词。"
+        else:
+            rendered = self._render_lrc_content(allow_untimed_fallback=True)
+            if rendered is None:
+                return
+            lrc_content, metadata_status = rendered
+
+        if not messagebox.askyesno(
+            "覆盖当前音频内嵌歌词",
+            f"将用编辑区当前歌词替换“{audio_path.name}”中的内嵌歌词。\n\n"
+            "音频内容、标题、封面和其他标签会保留。继续吗？",
+            parent=self.root,
+        ):
+            return
+
+        try:
+            source_audio_path = audio_path.resolve()
+        except OSError as exc:
+            messagebox.showerror("无法访问音频", str(exc), parent=self.root)
+            return
+        if self._player_path == source_audio_path or self._player_loading_path == source_audio_path:
+            self._release_player()
+
+        self._set_busy(True)
+        self.status_text.set(f"正在覆盖 {audio_path.name} 的内嵌歌词…")
+
+        def work() -> None:
+            try:
+                saved_contents = _write_embedded_lyrics_in_place(
+                    source_audio_path,
+                    lrc_content,
+                )
+                if lrc_content.strip() not in (content.strip() for content in saved_contents):
+                    raise RuntimeError("写入后重新读取到的内嵌歌词与编辑内容不一致。")
+                self.root.after(
+                    0,
+                    lambda: self._embedded_lyrics_overwrite_finished(
+                        source_audio_path,
+                        metadata_status,
+                    ),
+                )
+            except Exception as exc:
+                error_message = str(exc)
+                try:
+                    self.root.after(
+                        0,
+                        lambda message=error_message: self._embedded_lyrics_overwrite_failed(message),
+                    )
+                except tk.TclError:
+                    pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _embedded_lyrics_overwrite_finished(
+        self,
+        audio_path: Path,
+        metadata_status: str,
+    ) -> None:
+        self._embedded_audio_exported_source = None
+        self._embedded_audio_exported_output = None
+        self._set_busy(False)
+        self.status_text.set(f"已覆盖保存 {audio_path.name} 的内嵌歌词。{metadata_status}")
+
+    def _embedded_lyrics_overwrite_failed(self, error_message: str) -> None:
+        self._set_busy(False)
+        self.status_text.set("覆盖当前音频内嵌歌词失败。")
+        messagebox.showerror("覆盖内嵌歌词失败", error_message, parent=self.root)
+
     def _load_lyrics_into_editor(
         self,
         lyrics: list[str],
@@ -7635,6 +7733,7 @@ class DesktopAligner:
             self.align_button,
             self.export_button,
             self.embedded_export_button,
+            self.embedded_overwrite_button,
             self.feedback_button,
         ):
             button.configure(state=state)
@@ -7692,6 +7791,10 @@ class DesktopAligner:
         self.embedded_export_button.configure(
             state="normal" if available and not busy else "disabled"
         )
+        if hasattr(self, "embedded_overwrite_button"):
+            self.embedded_overwrite_button.configure(
+                state="normal" if available and not busy else "disabled"
+            )
 
     def _update_delete_audio_button_state(self, busy: bool = False) -> None:
         if not hasattr(self, "delete_audio_button"):

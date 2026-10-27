@@ -6,7 +6,7 @@ Lyrics 为了在只读安装目录中运行并避免不受限的 pickle 加载�
 
 | 上游文件 | Lyrics 集成修改 |
 |---|---|
-| `upstream/t2l/mtl/utils.py` | 从 `AUTO_LRC_CHECKPOINT_DIR` 读取已校验的用户缓存权重；将映射到 CPU 的权重限定为 `weights_only=True` 后再加载。 |
-| `upstream/t2l/phonetic.py` | 从 `AUTO_LRC_FASTTEXT_PATH` 读取已校验的 fastText 模型文件。 |
+| `upstream/t2l/mtl/utils.py` | 从 `AUTO_LRC_CHECKPOINT_DIR` 读取模型管理器选出的已校验权重（用户缓存或原有上游目录）；将映射到 CPU 的权重限定为 `weights_only=True` 后再加载。 |
+| `upstream/t2l/phonetic.py` | 从 `AUTO_LRC_FASTTEXT_PATH` 读取模型管理器选出的已校验 fastText 文件，不复制旧位置模型。 |
 
 修改均在对应源码旁标注，并遵守随上游代码保留的 Apache License 2.0。原始 Auto-LRC 模型权重不在 Release ZIP 内；`model_manager.py` 只从记录的固定提交下载并逐文件校验。

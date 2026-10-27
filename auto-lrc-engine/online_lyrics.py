@@ -103,13 +103,13 @@ def _request_json(
                 timeout=REQUEST_TIMEOUT,
             )
     except requests.exceptions.Timeout as exc:
-        raise RuntimeError(f"连接{source}超时，请检查网络后重试。") from exc
+        raise RuntimeError(f"连接 {source} 超时，请检查网络后重试。") from exc
     except requests.exceptions.SSLError as exc:
-        raise RuntimeError(f"与{source}建立 HTTPS 连接失败，请检查系统证书或网络代理。") from exc
+        raise RuntimeError(f"与 {source} 建立 HTTPS 连接失败，请检查系统证书或网络代理。") from exc
     except requests.exceptions.ConnectionError as exc:
-        raise RuntimeError(f"无法连接{source}，请检查网络连接或代理设置。") from exc
+        raise RuntimeError(f"无法连接 {source}，请检查网络连接或代理设置。") from exc
     except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"{source}请求失败：{exc}") from exc
+        raise RuntimeError(f"{source} 请求失败：{exc}") from exc
 
     if response.status_code >= 400:
         try:
