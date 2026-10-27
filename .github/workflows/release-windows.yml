@@ -1,0 +1,83 @@
+name: Build Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  build:
+    name: Build installer and draft release
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Inno Setup
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fileName = 'innosetup-7.1.0-x64.exe'
+          $downloadDirectory = $env:RUNNER_TEMP
+          gh release download is-7_1_0 --repo jrsoftware/issrc --pattern $fileName --dir $downloadDirectory
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the pinned Inno Setup release asset.' }
+
+          $setupPath = Join-Path $downloadDirectory $fileName
+          gh release verify-asset $setupPath --repo jrsoftware/issrc
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup GitHub release asset verification failed.' }
+
+          $signature = Get-AuthenticodeSignature -LiteralPath $setupPath
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
+            throw "Inno Setup Authenticode verification failed: $($signature.Status), $($signature.SignerCertificate.Subject)"
+          }
+
+          $process = Start-Process -FilePath $setupPath -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed with exit code $($process.ExitCode)." }
+
+      - name: Build installer, source archive, and checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath 'VERSION' -Raw).Trim()
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag '$env:GITHUB_REF_NAME' does not match VERSION '$version' (expected '$expectedTag')."
+          }
+
+          .\tools\Build-Installer.ps1
+          .\tools\Build-ReleaseZip.ps1
+          .\tools\Write-Checksums.ps1
+
+      - name: Attest Windows installer provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/Lyrics-Setup-*-Windows-x64.exe
+
+      - name: Attest source archive provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/Lyrics-*-Windows.zip
+
+      - name: Create GitHub draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath 'VERSION' -Raw).Trim()
+          $assets = @(
+            Get-Item -LiteralPath "dist\Lyrics-Setup-$version-Windows-x64.exe"
+            Get-Item -LiteralPath "dist\Lyrics-$version-Windows.zip"
+            Get-Item -LiteralPath 'dist\SHA256SUMS.txt'
+          ) | ForEach-Object { $_.FullName }
+          & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --generate-notes --title "Lyrics $version"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not create the draft GitHub Release (exit code $LASTEXITCODE)."
+          }

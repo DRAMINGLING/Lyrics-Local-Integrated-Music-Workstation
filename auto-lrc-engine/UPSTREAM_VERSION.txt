@@ -1,0 +1,2 @@
+Repository: https://github.com/liu-xiaoran/auto-lrc
+Commit: 2c475cc62dda50572d7a292fd88cc39e8aa2ae2c
