@@ -61,6 +61,7 @@ TIME_TAG = re.compile(r"\[(\d{1,3}):([0-5]\d)(?:[.:](\d{1,3}))?\]")
 DEFAULT_LYRIC_DRAFT_PANEL_HEIGHT = 420
 MIN_LYRIC_DRAFT_PANEL_HEIGHT = 320
 MAX_LYRIC_DRAFT_PANEL_HEIGHT = 1000
+DEFAULT_PLAYBACK_VOLUME_PERCENT = 100
 DEFAULT_WHEEL_HANDOFF_COOLDOWN_SECONDS = 0.5
 MIN_WHEEL_HANDOFF_COOLDOWN_SECONDS = 0.1
 MAX_WHEEL_HANDOFF_COOLDOWN_SECONDS = 1.0
@@ -249,9 +250,11 @@ THEMES = {
         "table_checked_background": "#e9f0e9",
         "table_checked_foreground": "#557a61",
         "table_skipped_foreground": "#88918a",
-        "table_problem_background": "#f3e9e8",
-        "table_problem_foreground": "#986663",
+        "table_problem_background": "#f8e2df",
+        "table_problem_foreground": "#803631",
         "table_active_background": "#e5ebf4",
+        "table_active_problem_background": "#f2c36d",
+        "table_active_problem_foreground": "#58370a",
         "button_background": "#edf1f7",
         "button_hover_background": "#e3eaf3",
         "button_foreground": "#50617a",
@@ -299,9 +302,11 @@ THEMES = {
         "table_checked_background": "#333b36",
         "table_checked_foreground": "#a8b9ad",
         "table_skipped_foreground": "#92999f",
-        "table_problem_background": "#403638",
-        "table_problem_foreground": "#c6a3a5",
+        "table_problem_background": "#573238",
+        "table_problem_foreground": "#ffd4d0",
         "table_active_background": "#383e45",
+        "table_active_problem_background": "#82501c",
+        "table_active_problem_foreground": "#fff4de",
         "button_background": "#353a40",
         "button_hover_background": "#3e444b",
         "button_foreground": "#c5cbd1",
@@ -1630,6 +1635,10 @@ class PygameAudioPlayer:
         self.duration_ms = self._read_duration_ms(path)
         return self.duration_ms
 
+    def set_volume(self, volume: float) -> None:
+        bounded_volume = max(0.0, min(1.0, float(volume)))
+        self._pygame.mixer.music.set_volume(bounded_volume)
+
     def play_from(self, position_ms: int) -> None:
         if not self._loaded:
             raise RuntimeError("请先选择音频文件。")
@@ -1776,6 +1785,7 @@ class DesktopAligner:
         self.row_results: list[dict] = []
         self.metadata: list[str] = []
         self._active_lyric_index: int | None = None
+        self._draft_auto_follow = True
         self._preview_row_index: int | None = None
         self.manual_problem_rows: set[int] = set()
         self.pending_review_rows: set[int] = set()
@@ -1800,6 +1810,8 @@ class DesktopAligner:
         self.vocalize_enabled = tk.BooleanVar(value=False)
         self.demucs_model_terms_acknowledged = False
         self.show_playback_milliseconds = tk.BooleanVar(value=False)
+        self.playback_volume = tk.DoubleVar(value=float(DEFAULT_PLAYBACK_VOLUME_PERCENT))
+        self.playback_volume_text = tk.StringVar(value=f"{DEFAULT_PLAYBACK_VOLUME_PERCENT}%")
         self.lyric_draft_panel_height = tk.StringVar(
             value=str(DEFAULT_LYRIC_DRAFT_PANEL_HEIGHT)
         )
@@ -1812,6 +1824,8 @@ class DesktopAligner:
         self._text_refresh_pending = False
         self._suppress_lyrics_modified = False
         self._time_editor: ttk.Entry | None = None
+        self._editing_index: int | None = None
+        self._time_editor_reposition_after: str | None = None
         self._player: PygameAudioPlayer | None = None
         self._player_path: Path | None = None
         self._player_state = "stopped"
@@ -1833,6 +1847,7 @@ class DesktopAligner:
         self.player_note_text = tk.StringVar(value="点击“播放 / 继续”或“暂停”控制音乐；双击歌词行试听。")
 
         self._load_settings()
+        self._on_playback_volume_changed()
         self._apply_wheel_handoff_cooldown()
         _activate_theme(self.theme)
         self._apply_window_icon()
@@ -1847,11 +1862,13 @@ class DesktopAligner:
             self.device_mode,
             self.vocalize_enabled,
             self.show_playback_milliseconds,
+            self.playback_volume,
             self.lyric_draft_panel_height,
             self.wheel_handoff_cooldown_seconds,
             self.lyric_template_language,
         ):
             setting_variable.trace_add("write", self._queue_settings_save)
+        self.playback_volume.trace_add("write", self._on_playback_volume_changed)
         self.lyric_draft_panel_height.trace_add(
             "write", self._apply_lyric_draft_panel_height
         )
@@ -2132,10 +2149,17 @@ class DesktopAligner:
             "problem",
             foreground=ui_color("table_problem_foreground"),
             background=ui_color("table_problem_background"),
+            font=("Microsoft YaHei UI", 9, "bold"),
         )
         self.table.tag_configure(
             "active",
             background=ui_color("table_active_background"),
+            font=("Microsoft YaHei UI", 9, "bold"),
+        )
+        self.table.tag_configure(
+            "active_problem",
+            foreground=ui_color("table_active_problem_foreground"),
+            background=ui_color("table_active_problem_background"),
             font=("Microsoft YaHei UI", 9, "bold"),
         )
 
@@ -2467,7 +2491,7 @@ class DesktopAligner:
         self.draft_hint_button.pack(side="right")
         self.draft_hint = ttk.Label(
             results_card,
-            text="双击歌词试听、双击时间修正；双击人工对照时间可应用到草稿。中键标记问题行后重打；黄色待检查行可中键确认为已检查。",
+            text="播放时自动跟随当前句；手动滚动后会暂停，点击“回到高亮句”可重新定位并恢复跟随。双击歌词试听、双击时间修正；中键标记问题行后重打或确认已检查。",
             style="Hint.TLabel",
             wraplength=480,
         )
@@ -2514,17 +2538,57 @@ class DesktopAligner:
         self.table.column("time", width=120, minwidth=110, anchor="center", stretch=False)
         self.table.column("status", width=90, minwidth=82, anchor="center", stretch=False)
         self.table.column("reference", width=155, minwidth=145, anchor="center", stretch=False)
-        table_y = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
+        table_y = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self._scroll_draft_table_manually,
+        )
         table_x = ttk.Scrollbar(table_frame, orient="horizontal", command=self.table.xview)
         self.table.configure(yscrollcommand=table_y.set, xscrollcommand=table_x.set)
         self.table.grid(row=0, column=0, sticky="nsew")
         table_y.grid(row=0, column=1, sticky="ns")
         table_x.grid(row=1, column=0, sticky="ew")
         self._configure_table_tags()
+        self.table.bind("<Configure>", self._schedule_time_editor_reposition, add="+")
         self.table.bind("<Double-1>", self._handle_table_double_click)
         self.table.bind("<Button-2>", self._handle_table_middle_click)
         self.table.bind("<Shift-MouseWheel>", self._scroll_table_horizontally, add="+")
+        for sequence in (
+            "<MouseWheel>",
+            "<Button-4>",
+            "<Button-5>",
+            "<KeyPress-Up>",
+            "<KeyPress-Down>",
+            "<KeyPress-Prior>",
+            "<KeyPress-Next>",
+            "<KeyPress-Home>",
+            "<KeyPress-End>",
+        ):
+            self.table.bind(sequence, self._pause_draft_auto_follow, add="+")
         self.table.bind("<<TreeviewSelect>>", self._show_row_reason)
+
+        self.return_to_active_lyric_button = tk.Button(
+            draft_heading,
+            text="回到高亮句",
+            command=self._return_to_current_highlight,
+            background=CARD_BACKGROUND,
+            foreground=ACCENT_COLOR,
+            activebackground=ui_color("nav_hover_background"),
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            padx=7,
+            pady=2,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            cursor="hand2",
+        )
+        self.return_to_active_lyric_button.pack(
+            side="right",
+            padx=(0, 6),
+            before=self.draft_hint_button,
+        )
+        self.return_to_active_lyric_button.pack_forget()
 
         footer = ttk.Frame(self.shell, style="Status.TFrame", padding=(10, 7))
         footer.grid(row=1, column=0, columnspan=2, sticky="ew", padx=18, pady=(0, 10))
@@ -2585,6 +2649,26 @@ class DesktopAligner:
             width=23,
             anchor="e",
         ).pack(side="right", padx=(10, 0))
+
+        volume_controls = ttk.Frame(controls, style="Card.TFrame")
+        volume_controls.pack(side="right", padx=(12, 0))
+        ttk.Label(volume_controls, text="音量", style="Setting.TLabel").pack(side="left")
+        self.player_volume_scale = ttk.Scale(
+            volume_controls,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            variable=self.playback_volume,
+            length=96,
+        )
+        self.player_volume_scale.pack(side="left", padx=(5, 3))
+        ttk.Label(
+            volume_controls,
+            textvariable=self.playback_volume_text,
+            style="Hint.TLabel",
+            width=4,
+            anchor="e",
+        ).pack(side="left")
 
         self.player_note_label = ttk.Label(
             content,
@@ -5089,6 +5173,15 @@ class DesktopAligner:
         show_playback_milliseconds = settings.get("show_playback_milliseconds")
         if isinstance(show_playback_milliseconds, bool):
             self.show_playback_milliseconds.set(show_playback_milliseconds)
+        playback_volume = settings.get("playback_volume_percent")
+        if (
+            isinstance(playback_volume, (int, float))
+            and not isinstance(playback_volume, bool)
+            and math.isfinite(playback_volume)
+        ):
+            self.playback_volume.set(
+                int(round(max(0, min(100, playback_volume))))
+            )
         lyric_draft_panel_height = settings.get("lyric_draft_panel_height")
         if isinstance(lyric_draft_panel_height, int) and not isinstance(lyric_draft_panel_height, bool):
             self.lyric_draft_panel_height.set(
@@ -5164,6 +5257,7 @@ class DesktopAligner:
             "vocalize_enabled": bool(self.vocalize_enabled.get()),
             "demucs_model_terms_acknowledged": self.demucs_model_terms_acknowledged,
             "show_playback_milliseconds": bool(self.show_playback_milliseconds.get()),
+            "playback_volume_percent": self._playback_volume_percent(),
             "lyric_draft_panel_height": self._lyric_draft_panel_height_value(),
             "wheel_handoff_cooldown_seconds": self._wheel_handoff_cooldown_value(),
             "lyric_template_language": self.lyric_template_language.get(),
@@ -5190,6 +5284,7 @@ class DesktopAligner:
         self.vocalize_enabled.set(False)
         self.demucs_model_terms_acknowledged = False
         self.show_playback_milliseconds.set(False)
+        self.playback_volume.set(DEFAULT_PLAYBACK_VOLUME_PERCENT)
         self.lyric_draft_panel_height.set(str(DEFAULT_LYRIC_DRAFT_PANEL_HEIGHT))
         self._apply_lyric_draft_panel_height()
         self.wheel_handoff_cooldown_seconds.set(
@@ -5220,7 +5315,7 @@ class DesktopAligner:
                 pass
             self._settings_save_after = None
         self._settings_save_after = self.root.after(200, self._save_restored_settings)
-        self.status_text.set("已恢复默认设置：运行选项、播放时间显示、歌词模板、输入/输出/封面文件夹和窗口布局。")
+        self.status_text.set("已恢复默认设置：运行选项、播放显示与音量、歌词模板、输入/输出/封面文件夹和窗口布局。")
 
     def _save_restored_settings(self) -> None:
         self._settings_save_after = None
@@ -5426,6 +5521,7 @@ class DesktopAligner:
 
                 self._player = player
                 self._player_path = audio
+                self._player.set_volume(self._playback_volume_percent() / 100)
                 self.player_scale.set_range(max(1, duration_ms))
                 self._set_player_position(0)
                 self.player_note_text.set(
@@ -5482,6 +5578,22 @@ class DesktopAligner:
             f"{self._format_progress_time(position_ms)} / {self._format_progress_time(duration_ms)}"
         )
 
+    def _playback_volume_percent(self) -> int:
+        try:
+            value = int(round(float(self.playback_volume.get())))
+        except (tk.TclError, TypeError, ValueError):
+            value = DEFAULT_PLAYBACK_VOLUME_PERCENT
+        return max(0, min(100, value))
+
+    def _on_playback_volume_changed(self, *_args) -> None:
+        volume_percent = self._playback_volume_percent()
+        self.playback_volume_text.set(f"{volume_percent}%")
+        if self._player is not None:
+            try:
+                self._player.set_volume(volume_percent / 100)
+            except Exception as exc:
+                self.player_note_text.set(f"音量调整失败：{exc}")
+
     @staticmethod
     def _time_text_to_ms(time_text: str) -> int | None:
         if not TIME_FORMAT.match(time_text):
@@ -5492,22 +5604,85 @@ class DesktopAligner:
     def _set_active_lyric(self, index: int | None, force_scroll: bool = False) -> None:
         previous_index = self._active_lyric_index
         self._active_lyric_index = index
+        if index is None:
+            self._draft_auto_follow = True
+        elif force_scroll:
+            self._draft_auto_follow = True
+        self._update_return_to_active_lyric_button()
         if previous_index == index and not force_scroll:
             return
         for item in self.table.get_children():
-            tags = [tag for tag in self.table.item(item, "tags") if tag != "active"]
+            tags = [
+                tag
+                for tag in self.table.item(item, "tags")
+                if tag not in {"active", "active_problem"}
+            ]
             if index is not None and item == str(index):
                 if "pending" in tags:
                     tags.insert(tags.index("pending"), "active")
                 else:
                     tags.append("active")
+                if index in self.manual_problem_rows:
+                    tags.insert(0, "active_problem")
             self.table.item(item, tags=tuple(tags))
         if index is not None and (force_scroll or previous_index != index):
             self.table.selection_set(str(index))
             self.table.focus(str(index))
-            self.table.see(str(index))
+            if self._draft_auto_follow:
+                self.table.see(str(index))
+                self._schedule_time_editor_reposition()
         elif index is None and previous_index is not None:
             self.table.selection_remove(self.table.selection())
+
+    def _update_return_to_active_lyric_button(self) -> None:
+        button = getattr(self, "return_to_active_lyric_button", None)
+        if button is None:
+            return
+        should_show = not self._draft_auto_follow and self._active_lyric_index is not None
+        if should_show and button.winfo_manager() != "pack":
+            button.pack(side="right", padx=(0, 6), before=self.draft_hint_button)
+        elif not should_show and button.winfo_manager():
+            button.pack_forget()
+
+    def _pause_draft_auto_follow(self, *_args) -> None:
+        self._draft_auto_follow = False
+        self._update_return_to_active_lyric_button()
+        self._schedule_time_editor_reposition()
+
+    def _scroll_draft_table_manually(self, *arguments) -> None:
+        self._pause_draft_auto_follow()
+        self.table.yview(*arguments)
+        self._schedule_time_editor_reposition()
+
+    def _return_to_current_highlight(self) -> None:
+        if self._active_lyric_index is None:
+            return
+        row_id = str(self._active_lyric_index)
+        if not self.table.exists(row_id):
+            return
+        self._draft_auto_follow = True
+        self.table.selection_set(row_id)
+        self.table.focus(row_id)
+        self._scroll_table_row_to_center(row_id)
+        self._update_return_to_active_lyric_button()
+
+    def _scroll_table_row_to_center(self, row_id: str) -> None:
+        try:
+            self.table.see(row_id)
+            bounds = self.table.bbox(row_id)
+            if not bounds:
+                return
+            _, row_y, _, row_height = bounds
+            viewport_height = self.table.winfo_height()
+            if row_height <= 0 or viewport_height <= 0:
+                return
+            target_y = max(0, (viewport_height - row_height) / 2)
+            scroll_units = round((row_y - target_y) / row_height)
+            if scroll_units:
+                self.table.yview_scroll(scroll_units, "units")
+                self._schedule_time_editor_reposition()
+        except tk.TclError:
+            return
 
     def _update_active_lyric(self, position_ms: int) -> None:
         lyrics = self._read_lyrics()
@@ -6427,6 +6602,8 @@ class DesktopAligner:
         self._update_feedback_button_state()
         self._preview_row_index = None
         self._active_lyric_index = None
+        self._draft_auto_follow = True
+        self._update_return_to_active_lyric_button()
         self.manual_problem_rows.clear()
         self.pending_review_rows.clear()
         self.checked_rows.clear()
@@ -7363,6 +7540,8 @@ class DesktopAligner:
         self._update_embedded_export_button_state()
         self._preview_row_index = None
         self._active_lyric_index = None
+        self._draft_auto_follow = True
+        self._update_return_to_active_lyric_button()
         self.manual_problem_rows.clear()
         self.pending_review_rows.clear()
         self.checked_rows.clear()
@@ -7398,14 +7577,17 @@ class DesktopAligner:
                 tags = (*tags, "checked")
             if index == self._active_lyric_index:
                 tags = (*tags, "active")
+                if is_problem:
+                    tags = ("active_problem", *tags)
             if is_pending:
                 tags = (*tags, "pending")
             comparison = self._format_reference_comparison(index, output_times[index])
+            line_label = f"! {index + 1}" if is_problem else index + 1
             self.table.insert(
                 "",
                 "end",
                 iid=str(index),
-                values=(index + 1, lyric, output_times[index], status_label, comparison),
+                values=(line_label, lyric, output_times[index], status_label, comparison),
                 tags=tags,
             )
 
@@ -7894,16 +8076,78 @@ class DesktopAligner:
         entry.bind("<Return>", lambda _event: self._commit_time_edit())
         entry.bind("<Escape>", lambda _event: self._cancel_time_edit())
         entry.bind("<FocusOut>", lambda _event: self._commit_time_edit())
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            entry.bind(sequence, self._scroll_time_editor_with_wheel, add="+")
         self._time_editor = entry
         self._editing_index = int(row_id)
+
+    def _schedule_time_editor_reposition(self, *_args) -> None:
+        if self._time_editor is None or self._time_editor_reposition_after is not None:
+            return
+        try:
+            self._time_editor_reposition_after = self.root.after_idle(
+                self._reposition_time_editor
+            )
+        except tk.TclError:
+            self._time_editor_reposition_after = None
+
+    def _reposition_time_editor(self) -> None:
+        self._time_editor_reposition_after = None
+        entry = self._time_editor
+        if entry is None or self._editing_index is None:
+            return
+        row_id = str(self._editing_index)
+        try:
+            bounds = self.table.bbox(row_id, "time") if self.table.exists(row_id) else None
+            if not bounds:
+                try:
+                    scroll_position = self.table.yview()[0]
+                except tk.TclError:
+                    scroll_position = 0.0
+                self._commit_time_edit()
+                try:
+                    self.table.yview_moveto(scroll_position)
+                except tk.TclError:
+                    pass
+                return
+            x, y, width, height = bounds
+            entry.place_configure(x=x, y=y, width=width, height=height)
+        except tk.TclError:
+            if self._time_editor is entry:
+                self._commit_time_edit()
+
+    def _scroll_time_editor_with_wheel(self, event):
+        button_number = getattr(event, "num", None)
+        delta = getattr(event, "delta", 0)
+        if button_number == 4:
+            units = -3
+        elif button_number == 5:
+            units = 3
+        elif delta:
+            steps = max(1, round(abs(delta) / 120 * 3))
+            units = -steps if delta > 0 else steps
+        else:
+            return "break"
+        try:
+            first, last = self.table.yview()
+        except tk.TclError:
+            return None
+        if (units < 0 and first <= 0.001) or (units > 0 and last >= 0.999):
+            return None
+        self._pause_draft_auto_follow()
+        self.table.yview_scroll(units, "units")
+        self._schedule_time_editor_reposition()
+        return "break"
 
     def _commit_time_edit(self) -> None:
         if self._time_editor is None:
             return
+        self._cancel_time_editor_reposition()
         value = self._time_editor.get().strip()
         index = self._editing_index
         self._time_editor.destroy()
         self._time_editor = None
+        self._editing_index = None
         if not TIME_FORMAT.match(value):
             messagebox.showwarning("时间格式不正确", "请使用 mm:ss.mmm 格式，例如 01:23.450。", parent=self.root)
             self._refresh_table()
@@ -7946,9 +8190,20 @@ class DesktopAligner:
 
     def _cancel_time_edit(self) -> None:
         if self._time_editor is not None:
+            self._cancel_time_editor_reposition()
             self._time_editor.destroy()
             self._time_editor = None
+            self._editing_index = None
             self._refresh_table()
+
+    def _cancel_time_editor_reposition(self) -> None:
+        if self._time_editor_reposition_after is None:
+            return
+        try:
+            self.root.after_cancel(self._time_editor_reposition_after)
+        except tk.TclError:
+            pass
+        self._time_editor_reposition_after = None
 
     def _show_row_reason(self, _event=None) -> None:
         selection = self.table.selection()
@@ -7959,9 +8214,7 @@ class DesktopAligner:
         index = int(selection[0])
         row = next((item for item in self.row_results if item["index"] == index), None)
         reason = row.get("reason", "") if row else ""
-        if index in self.manual_problem_rows:
-            reason = (reason + "  " if reason else "") + "已标记为问题行；当前错误时间会尝试作为负反馈，有匹配人工 LRC 时也会使用人工时间作正确标注。再次中键可取消。"
-        elif index in self.pending_review_rows:
+        if index in self.pending_review_rows:
             reason = (reason + "  " if reason else "") + "重打已完成，待试听检查；没有匹配人工时间时会排除训练，中键可确认为已检查。"
         elif index in self.checked_rows:
             reason = (reason + "  " if reason else "") + "已确认检查；再次中键可标记为问题行。"
@@ -8000,10 +8253,11 @@ class DesktopAligner:
             {"aligned": "已对齐", "review": "需检查", "skipped": "已跳过"}.get(status, "")
         )
         values = list(self.table.item(row_id, "values"))
+        values[0] = f"! {index + 1}" if index in self.manual_problem_rows else index + 1
         values[3] = status_label
         tags = [
             tag for tag in self.table.item(row_id, "tags")
-            if tag not in {"problem", "pending", "checked"}
+            if tag not in {"problem", "pending", "checked", "active_problem"}
         ]
         if index in self.manual_problem_rows:
             tags.append("problem")
@@ -8014,23 +8268,21 @@ class DesktopAligner:
                 tags.insert(tags.index("pending"), "active")
             elif "active" not in tags:
                 tags.append("active")
+            if index in self.manual_problem_rows:
+                tags.insert(0, "active_problem")
         self.table.item(row_id, values=values, tags=tuple(tags))
         self._update_problem_button_state()
         if self.table.selection() == (row_id,):
             self._show_row_reason()
         if index in self.checked_rows:
-            note = f"已将第 {index + 1} 行确认为已检查；播放继续。"
-        elif index in self.manual_problem_rows:
-            note = f"已标记第 {index + 1} 行为问题行；播放继续。再次中键可取消标记。"
-        else:
-            note = f"已取消第 {index + 1} 行的问题标记；播放继续。"
-        self.player_note_text.set(note)
+            self.player_note_text.set(f"已将第 {index + 1} 行确认为已检查；播放继续。")
 
     def _scroll_table_horizontally(self, event):
         if not event.delta:
             return "break"
         steps = max(1, round(abs(event.delta) / 120 * 30))
         self.table.xview_scroll(-steps if event.delta > 0 else steps, "units")
+        self._schedule_time_editor_reposition()
         return "break"
 
     def _toggle_editor_hint(self, section: str) -> None:
@@ -8200,16 +8452,18 @@ class DesktopAligner:
                 messagebox.showwarning(
                     "前奏时间不足",
                     f"第一句歌词从 {first_vocal_time} 开始，无法在此之前为 {len(metadata_lines)} 行曲目信息各留出至少 0.5 秒。\n\n"
-                    "请先确认第一句歌词的时间，或减少曲目信息行数后再导出。歌词时间不会被自动推迟。",
+                    "曲目信息行将全部使用 [00:00.000]，歌词时间保持不变；关闭提示后继续导出。",
                     parent=self.root,
                 )
-                return None
-            output.extend(
-                f"[{self._format_player_time((first_vocal_ms * index) // len(metadata_lines))}]{line}"
-                for index, line in enumerate(metadata_lines)
-            )
+                output.extend(f"[00:00.000]{line}" for line in metadata_lines)
+                metadata_status = " 曲目信息的时间不足，已全部设为 00:00.000。"
+            else:
+                output.extend(
+                    f"[{self._format_player_time((first_vocal_ms * index) // len(metadata_lines))}]{line}"
+                    for index, line in enumerate(metadata_lines)
+                )
+                metadata_status = f" 曲目信息已均匀排在首句歌词（{first_vocal_time}）之前。"
             output.append("")
-            metadata_status = f" 曲目信息已均匀排在首句歌词（{first_vocal_time}）之前。"
         output.extend(f"[{times[index]}]{lyric}" if lyric else "" for index, lyric in enumerate(lyrics))
         return "\n".join(output) + "\n", metadata_status
 
