@@ -134,8 +134,8 @@ def _download_asset(name: str, destination: Path, details: dict) -> None:
                 pass
 
 
-def ensure_auto_lrc_assets() -> AutoLrcAssets:
-    """Fetch missing pinned assets and reject truncated or altered cache files."""
+def verify_auto_lrc_assets() -> AutoLrcAssets:
+    """Verify manually downloaded pinned assets without making network requests."""
     assets = configure_model_paths()
     cache_dir = assets.fasttext_model_path.parent
     with _LOCK:
@@ -151,6 +151,32 @@ def ensure_auto_lrc_assets() -> AutoLrcAssets:
                 expected_size=details["size"],
                 expected_sha256=details["sha256"],
             ):
-                _download_asset(name, destination, details)
+                raise RuntimeError(
+                    "Auto-LRC 模型尚未下载，或缓存文件未通过 SHA-256 校验。"
+                    "请先阅读 README.md，然后在开始菜单运行“下载 Auto-LRC 模型”。"
+                )
+            _VERIFIED.add(name)
+    return AutoLrcAssets(assets.checkpoint_dir, cache_dir / "lid.176.ftz")
+
+
+def download_auto_lrc_assets() -> AutoLrcAssets:
+    """Download and verify pinned assets only when explicitly requested by the user."""
+    assets = configure_model_paths()
+    cache_dir = assets.fasttext_model_path.parent
+    with _LOCK:
+        for name, details in _ASSETS.items():
+            if name == "lid.176.ftz":
+                destination = assets.fasttext_model_path
+            else:
+                destination = assets.checkpoint_dir / name
+            if _valid_file(
+                destination,
+                expected_size=details["size"],
+                expected_sha256=details["sha256"],
+            ):
+                _VERIFIED.add(name)
+                continue
+            print(f"正在下载并校验 Auto-LRC 模型文件：{name}")
+            _download_asset(name, destination, details)
             _VERIFIED.add(name)
     return AutoLrcAssets(assets.checkpoint_dir, cache_dir / "lid.176.ftz")

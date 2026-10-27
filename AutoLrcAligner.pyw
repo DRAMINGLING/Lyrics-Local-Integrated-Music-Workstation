@@ -48,8 +48,8 @@ except ImportError as exc:
     _bootstrap_root = tk.Tk()
     _bootstrap_root.withdraw()
     messagebox.showerror(
-        "请先完成一次性安装",
-        "双击窗口前需要先安装本机模型环境。请双击根目录的 InstallAutoLrc.cmd 完成一次安装。\n\n"
+        "请先安装运行环境",
+        "请先阅读 README.md，并在开始菜单中手动安装本机运行环境。\n\n"
         f"详细信息：{exc}",
         parent=_bootstrap_root,
     )

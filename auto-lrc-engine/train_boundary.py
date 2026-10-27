@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 from embedded_lyrics import read_embedded_lyrics
-from model_manager import configure_model_paths, ensure_auto_lrc_assets
+from model_manager import configure_model_paths, verify_auto_lrc_assets
 
 
 ENGINE_ROOT = Path(__file__).resolve().parent
@@ -319,7 +319,7 @@ def _run_epoch(torch, np, model, optimizer, cache_paths, tracks, indices, device
 
 
 def train(args) -> None:
-    assets = ensure_auto_lrc_assets()
+    assets = verify_auto_lrc_assets()
     configure_model_paths()
     import torch
     import torchaudio

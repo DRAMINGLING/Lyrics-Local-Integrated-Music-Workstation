@@ -9,7 +9,7 @@ pythonw = rootDir & "\auto-lrc-engine\.venv\Scripts\pythonw.exe"
 appFile = rootDir & "\AutoLrcAligner.pyw"
 
 If Not fso.FileExists(pythonw) Then
-    MsgBox "The Lyrics runtime is not installed yet. Use Start Menu > Install or repair CPU runtime, then launch Lyrics again.", vbExclamation, "Lyrics"
+    MsgBox "请先阅读安装目录中的 README.md，再从开始菜单手动安装 CPU 运行环境。本安装程序不会安装 Python 运行环境或依赖。", vbExclamation, "Lyrics"
     WScript.Quit 1
 End If
 

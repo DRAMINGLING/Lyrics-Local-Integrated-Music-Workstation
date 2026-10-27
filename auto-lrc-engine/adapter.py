@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from model_manager import ensure_auto_lrc_assets
+from model_manager import verify_auto_lrc_assets
 
 
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
@@ -82,7 +82,6 @@ def _upstream_working_directory() -> Iterator[None]:
 
 def _get_models(vocalize: bool, device_preference: str, boundary_checkpoint: str | Path | None = None):
     global _ACOUSTIC_MODEL, _DEMUCS_MODEL, _MODEL_DEVICE, _MODEL_BOUNDARY_CHECKPOINT
-    ensure_auto_lrc_assets()
     with _MODEL_LOCK, _upstream_working_directory():
         try:
             import torch
@@ -90,15 +89,17 @@ def _get_models(vocalize: bool, device_preference: str, boundary_checkpoint: str
             from t2l.t2l import load_demucs_model
         except ImportError as exc:
             raise RuntimeError(
-                "Auto-LRC 依赖尚未安装。请双击 InstallAutoLrc.cmd 完成一次安装。"
+                "Auto-LRC 依赖尚未安装。请先阅读 README.md，然后从开始菜单手动安装 CPU 或 CUDA 运行环境。"
             ) from exc
+
+        verify_auto_lrc_assets()
 
         cuda_available = torch.cuda.is_available()
         if device_preference == "cuda":
             if not cuda_available:
                 raise RuntimeError(
                     "当前环境没有可用的 CUDA GPU。请确认电脑有 NVIDIA GPU，"
-                    "并在安装时成功安装了 CUDA 版 PyTorch；也可以改选“自动”或“CPU”。"
+                    "并已从开始菜单手动安装 CUDA 版运行环境；也可以改选“自动”或“CPU”。"
                 )
             selected_device = "cuda"
         elif device_preference == "cpu":

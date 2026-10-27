@@ -99,4 +99,5 @@ if ($LASTEXITCODE -ne 0) { throw '安装 Auto-LRC 依赖失败。请查看上方
 [System.IO.File]::WriteAllText($runtimeModeFile, $requestedMode, [System.Text.Encoding]::ASCII)
 
 Write-Host ''
-Write-Host '安装完成。Auto-LRC 声学模型会在首次打轴时下载；人声分离模型仅在确认许可并启用后下载。'
+Write-Host '依赖安装完成。请按 README.md 的说明，单独运行 DownloadAutoLrcModels.cmd 下载并校验 Auto-LRC 模型。'
+Write-Host '人声分离模型仅在确认许可并启用后由 Demucs 上游下载。'

@@ -1,6 +1,6 @@
 #define AppName "Lyrics"
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 
 [Setup]
@@ -33,14 +33,16 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 [CustomMessages]
 english.AdditionalShortcuts=Additional shortcuts:
 english.DesktopIconTask=Create a desktop shortcut
-english.CpuRuntimeShortcut=Install or repair CPU runtime
-english.CudaRuntimeShortcut=Install or repair CUDA runtime
-english.InstallingRuntime=Installing the CPU runtime and Python dependencies. An Internet connection is required.
+english.ReadmeShortcut=Read installation guide
+english.CpuRuntimeShortcut=Install or repair CPU runtime (manual)
+english.CudaRuntimeShortcut=Install or repair CUDA runtime (manual)
+english.ModelDownloadShortcut=Download Auto-LRC models (manual)
 chinesesimplified.AdditionalShortcuts=其他快捷方式：
 chinesesimplified.DesktopIconTask=创建桌面快捷方式
-chinesesimplified.CpuRuntimeShortcut=安装或修复 CPU 运行环境
-chinesesimplified.CudaRuntimeShortcut=安装或修复 CUDA 运行环境
-chinesesimplified.InstallingRuntime=正在安装 CPU 运行环境和 Python 依赖，需要保持网络连接。
+chinesesimplified.ReadmeShortcut=阅读安装说明
+chinesesimplified.CpuRuntimeShortcut=手动安装或修复 CPU 运行环境
+chinesesimplified.CudaRuntimeShortcut=手动安装或修复 CUDA 运行环境
+chinesesimplified.ModelDownloadShortcut=手动下载 Auto-LRC 模型
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIconTask}"; GroupDescription: "{cm:AdditionalShortcuts}"; Flags: unchecked
@@ -53,6 +55,7 @@ Name: "{app}\covers"
 [Files]
 Source: "..\AutoLrcAligner.pyw"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\InstallAutoLrc.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\DownloadAutoLrcModels.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LaunchLyrics.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
@@ -66,42 +69,12 @@ Source: "..\auto-lrc-engine\*"; DestDir: "{app}\auto-lrc-engine"; Excludes: ".ve
 
 [Icons]
 Name: "{group}\Lyrics"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\LaunchLyrics.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\Lyrics.ico"
+Name: "{group}\{cm:ReadmeShortcut}"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\README.md"""
 Name: "{group}\{cm:CpuRuntimeShortcut}"; Filename: "{app}\InstallAutoLrc.cmd"; WorkingDir: "{app}"
 Name: "{group}\{cm:CudaRuntimeShortcut}"; Filename: "{app}\InstallAutoLrc.cmd"; Parameters: "--cuda"; WorkingDir: "{app}"
+Name: "{group}\{cm:ModelDownloadShortcut}"; Filename: "{app}\DownloadAutoLrcModels.cmd"; WorkingDir: "{app}"
 Name: "{autodesktop}\Lyrics"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\LaunchLyrics.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\Lyrics.ico"; Tasks: desktopicon
-
-[Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\auto-lrc-engine\setup.ps1"""; WorkingDir: "{app}"; StatusMsg: "{cm:InstallingRuntime}"; Flags: waituntilterminated
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\auto-lrc-engine\.venv"
 Type: files; Name: "{app}\auto-lrc-engine\.runtime-mode"
-
-[Code]
-function HasPythonLauncherVersion(Version: String): Boolean;
-var
-  ResultCode: Integer;
-begin
-  if Exec(
-    ExpandConstant('{sys}\cmd.exe'),
-    '/C py -' + Version + ' -c "import struct,sys;sys.exit(0 if struct.calcsize(''P'') == 8 else 1)" >nul 2>&1',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  ) then
-    Result := ResultCode = 0
-  else
-    Result := False;
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  Result := HasPythonLauncherVersion('3.10') or HasPythonLauncherVersion('3.11');
-  if not Result then
-    MsgBox(
-      'Lyrics requires 64-bit Python 3.10 or 3.11 with the Python Launcher (py). Install it from https://www.python.org/downloads/windows/ and run this installer again.',
-      mbError,
-      MB_OK
-    );
-end;

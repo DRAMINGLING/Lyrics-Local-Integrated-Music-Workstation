@@ -15,12 +15,14 @@ $requiredFiles = @(
   'installer\Lyrics.iss',
   'AutoLrcAligner.pyw',
   'InstallAutoLrc.cmd',
+  'DownloadAutoLrcModels.cmd',
   'LaunchLyrics.vbs',
   'LICENSE',
   'model-presets\LICENSE',
   $presetRelativePath,
   'assets\Lyrics.ico',
-  'auto-lrc-engine\setup.ps1'
+  'auto-lrc-engine\setup.ps1',
+  'auto-lrc-engine\download_auto_lrc_models.py'
 )
 foreach ($relativePath in $requiredFiles) {
   $fullPath = Join-Path $projectRoot $relativePath
