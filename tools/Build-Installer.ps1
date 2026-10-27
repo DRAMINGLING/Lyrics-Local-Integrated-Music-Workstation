@@ -30,16 +30,12 @@ foreach ($relativePath in $requiredFiles) {
 }
 
 if (-not $CompilerPath) {
-  $command = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
-  if ($command) { $CompilerPath = $command.Source }
-}
-
-if (-not $CompilerPath) {
+  $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
   $compilerCandidates = @(
-    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe'),
+    (Join-Path $programFilesX86 'Inno Setup 7\ISCC.exe'),
     (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
-    (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe')
+    (Join-Path $programFilesX86 'Inno Setup 6\ISCC.exe')
   )
   $compilerPathCandidate = $compilerCandidates |
     Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
@@ -47,11 +43,20 @@ if (-not $CompilerPath) {
   if ($compilerPathCandidate) { $CompilerPath = [string]$compilerPathCandidate }
 }
 
+if (-not $CompilerPath) {
+  $command = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
+  if ($command) { $CompilerPath = $command.Source }
+}
+
 if (-not $CompilerPath -or -not (Test-Path -LiteralPath $CompilerPath -PathType Leaf)) {
   throw 'Inno Setup Compiler (ISCC.exe) was not found. Install Inno Setup 6.3 or 7 from https://jrsoftware.org/isinfo.php, then rerun this script.'
 }
 
 $compilerPathResolved = (Resolve-Path -LiteralPath $CompilerPath).Path
+$languageFile = Join-Path (Split-Path -Parent $compilerPathResolved) 'Languages\ChineseSimplified.isl'
+if (-not (Test-Path -LiteralPath $languageFile -PathType Leaf)) {
+  throw "The selected Inno Setup installation is missing its Simplified Chinese language file: $languageFile"
+}
 $compilerVersion = (Get-Item -LiteralPath $compilerPathResolved).VersionInfo.ProductVersion
 if ($compilerVersion -match '^(\d+)\.(\d+)' -and $matches[1] -eq '6' -and [int]$matches[2] -lt 3) {
   throw "Inno Setup 6.3 or newer is required for x64-compatible Windows support. Found $compilerVersion at $compilerPathResolved."
